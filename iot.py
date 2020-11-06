@@ -1,7 +1,8 @@
 import random
 import time
 from multiprocessing import Process, Queue
-
+import bcrypt
+import os
 
 class WeightSensor:
     def __init__(self, processWeightDataQueue, rawWeightDataQueue, iotStatusQueue):
@@ -11,6 +12,7 @@ class WeightSensor:
         self.rawWeightDataQueue = rawWeightDataQueue
         self.iotStatusQueue = iotStatusQueue
         self.version = 'v1'
+        self.p = None
 
     def listen_queue(self, queue):
         while True:
@@ -19,8 +21,9 @@ class WeightSensor:
                 patch = queue.get()
                 if 'patch' in patch:
                     self.lowMode = True
-                    self.iotStatusQueue.put({'lowMode': self.lowMode })
-                    print('set low mode to ' + str(self.lowMode))
+                    self.iotStatusQueue.put({'lowMode': self.lowMode})
+                    self.p.stdin.write(str("hello").encode())
+                    self.p.stdin.flush()
                     patch_update = patch['patch']
                     self.update(patch_update)
                 else:
@@ -138,7 +141,12 @@ class strataSystem:
             return self.authenticate(username, password)
 
     def authenticate(self, username, password):
-        return True
+        if bcrypt.hashpw(password.encode('utf-8'), os.environ['pass'].encode('utf-8')) == os.environ['pass'].encode(
+                'utf-8') and username == os.environ['user']:
+            print("works")
+            return True
+        else:
+            print("It does not match")
 
 
 

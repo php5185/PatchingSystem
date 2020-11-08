@@ -3,6 +3,7 @@ import time
 from multiprocessing import Process, Queue
 import bcrypt
 import os
+from cryptography.fernet import Fernet
 
 class WeightSensor:
     def __init__(self, processWeightDataQueue, rawWeightDataQueue, iotStatusQueue):
@@ -22,10 +23,14 @@ class WeightSensor:
                 if 'patch' in patch:
                     self.lowMode = True
                     self.iotStatusQueue.put({'lowMode': self.lowMode})
-                    self.p.stdin.write(str("hello").encode())
-                    self.p.stdin.flush()
+                    # self.p.stdin.write(str("hello").encode())
+                    # self.p.stdin.flush()
                     patch_update = patch['patch']
-                    self.update(patch_update)
+                    #### decrypt patch
+                    print("IN DECIVE PATCH RECEIVED: "+str(patch_update))
+                    patch_decrypted = self.decrypt_message(patch_update)
+                    print("IN DEVICE PATCH DECRYPTED: "+str(patch_decrypted))
+                    self.update(str(patch_decrypted))
                 else:
                     self.getRawData()
             else:
@@ -33,6 +38,23 @@ class WeightSensor:
 
     def activateLowMode(self):
         self.lowMode = True
+
+    def load_key(self):
+        """
+        Load the previously generated key
+        """
+        return open("secret.key", "rb").read()
+
+    def decrypt_message(self, encrypted_message):
+        """
+        Decrypts an encrypted message
+        """
+        key = self.load_key()
+        f = Fernet(key)
+        decrypted_message = f.decrypt(encrypted_message)
+
+        # print(decrypted_message.decode())
+        return decrypted_message.decode()
 
     def sendProcessData(self, data):
         # x=5
@@ -129,9 +151,14 @@ class strataSystem:
     def send_patch(self, patch):
         time.sleep(5)
         proceed = self.confirm_patch()
+        # proceed = True
+        #send patch encrypted
+        self.generate_key()
+        patch_encrypted = self.encrypt_message(patch)
+        print("#############Patch encrypted: "+ str(patch_encrypted))
         if proceed:
             print('sending patch')
-            self.patchQueue.put({'patch': patch})
+            self.patchQueue.put({'patch': patch_encrypted})
 
     def confirm_patch(self):
         result = input('There is a new patch, would you like to install it? (y/n)')
@@ -148,7 +175,31 @@ class strataSystem:
         else:
             print("It does not match")
 
+    def generate_key(self):
+        """
+        Generates a key and save it into a file
+        """
+        key = Fernet.generate_key()
+        with open("secret.key", "wb") as key_file:
+            key_file.write(key)
 
+    def load_key(self):
+        """
+        Load the previously generated key
+        """
+        return open("secret.key", "rb").read()
+
+    def encrypt_message(self, message):
+        """
+        Encrypts a message
+        """
+        key = self.load_key()
+        encoded_message = message.encode()
+        f = Fernet(key)
+        encrypted_message = f.encrypt(encoded_message)
+
+        print(encrypted_message)
+        return encrypted_message
 
 
 if __name__ == '__main__':

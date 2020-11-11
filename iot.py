@@ -5,6 +5,24 @@ import bcrypt
 import os
 from cryptography.fernet import Fernet
 
+# TODOS:
+# 1 - check to see if the patch succeeds, if not rollback
+# 2 - check integrity of patch
+# 3 - Put the patch in a separate place to control how to send it.
+# 4 - Clean the code
+
+class Console:
+    @staticmethod
+    def customPrint(targetFile, message):
+        # If any of you want to test this, remember that the tail command won't work on windows.
+        im_using_windows = True
+
+        if (im_using_windows):
+            print(message)
+        else:
+            with open("./logs/" + targetFile, 'w') as f:
+                f.write(message + "\n")
+
 class WeightSensor:
     def __init__(self, processWeightDataQueue, rawWeightDataQueue, iotStatusQueue):
         self.lowMode = False
@@ -13,6 +31,7 @@ class WeightSensor:
         self.rawWeightDataQueue = rawWeightDataQueue
         self.iotStatusQueue = iotStatusQueue
         self.version = 'v1'
+        self.logFile = 'WeightSensor.txt'
         self.p = None
 
     def listen_queue(self, queue):
@@ -27,9 +46,9 @@ class WeightSensor:
                     # self.p.stdin.flush()
                     patch_update = patch['patch']
                     #### decrypt patch
-                    print("IN DECIVE PATCH RECEIVED: "+str(patch_update))
+                    # print("IN DECIVE PATCH RECEIVED: " + str(patch_update))
                     patch_decrypted = self.decrypt_message(patch_update)
-                    print("IN DEVICE PATCH DECRYPTED: "+str(patch_decrypted))
+                    # print("IN DEVICE PATCH DECRYPTED: " + str(patch_decrypted))
                     self.update(str(patch_decrypted))
                 else:
                     self.getRawData()
@@ -58,13 +77,17 @@ class WeightSensor:
 
     def sendProcessData(self, data):
         # x=5
-        print('Send Process Data (' + self.version + '):' + str(data))
+        print_message = 'Send Process Data (' + self.version + '):' + str(data)
+        Console.customPrint(self.logFile, print_message)
+        # print('Send Process Data (' + self.version + '):' + str(data))
         self.processWeightDataQueue.put({'data': data})
         #sends data to node -- using Queue
 
     def sendRawData(self, data):
         # x=5
-        print('Send Raw Data:' + str(data))
+        print_message = 'Send Raw Data:' + str(data)
+        Console.customPrint(self.logFile, print_message) 
+        # print(printMessage)
         self.rawWeightDataQueue.put({'data': data})
         #sends data to node -- using Queue
 
@@ -80,17 +103,20 @@ class WeightSensor:
         rawData = random.randrange(3000, 4000)
         if self.lowMode:
             self.patch_progress()
-            print('iot in low mode')
+            # print('iot in low mode')
+            Console.customPrint(self.logFile, 'iot in low mode')
             self.sendRawData(rawData)
         else:
-            print('iot in regular mode')
+            # print('iot in regular mode')
+            Console.customPrint(self.logFile, 'iot in regular mode')
             self.process(rawData)
 
     # pylint: disable=E0202
     def process(self, data):
         # print('Im the core process')
         newData = data / 1000
-        print('Process:' + str(newData) + " kg")
+        # print('Process:' + str(newData) + " kg")
+        Console.customPrint(self.logFile, 'Process:' + str(newData) + " kg")
         self.sendProcessData(newData)
         # print(data)
 
@@ -107,6 +133,7 @@ class PLC:
         self.lowMode = False
         self.weightSensor = weightSensor
         self.communicationNetwork = communicationNetwork
+        self.logFile = 'PLC.txt'
 
     def listen_data_queue(self):
         while True:
@@ -119,7 +146,8 @@ class PLC:
             if self.lowMode:
                 if not self.rawWeightDataQueue.empty():
                     data = self.rawWeightDataQueue.get()['data']
-                    print('PLC PROCESS: ', data)
+                    Console.customPrint(self.logFile, 'PLC PROCESS' + str(data))
+                    # print('PLC PROCESS: ', data)
                     self.processData(data)
             self.send_over_communication_network()
 
@@ -130,15 +158,15 @@ class PLC:
         if not self.processWeightDataQueue.empty():
             process_data = self.processWeightDataQueue.get()
             if 'data' in process_data:
-                print('PLC receives: ' + str(process_data['data']))
+                Console.customPrint(self.logFile, 'PLC receives: ' + str(process_data['data']))
+                # print('PLC receives: ' + str(process_data['data']))
                 self.communicationNetwork.put({'data': process_data['data']})
-    # def simulateIot(self):
-    #     x=5
 
 class strataSystem:
     def __init__(self, patchQueue,communicationNetwork):
         self.patchQueue = patchQueue
         self.communicationNetwork = communicationNetwork
+        self.logFile = 'System.txt'
 
     def listen_process_queue(self):
         while True:
@@ -146,7 +174,8 @@ class strataSystem:
             if not self.communicationNetwork.empty():
                 process_data = self.communicationNetwork.get()
                 if 'data' in process_data:
-                    print('System receives: ' + str(process_data['data']))
+                    Console.customPrint(self.logFile, 'System receives: ' + str(process_data['data']))
+                    # print('System receives: ' + str(process_data['data']))
 
     def send_patch(self, patch):
         time.sleep(5)
@@ -155,9 +184,10 @@ class strataSystem:
         #send patch encrypted
         self.generate_key()
         patch_encrypted = self.encrypt_message(patch)
-        print("#############Patch encrypted: "+ str(patch_encrypted))
+        # print("#############Patch encrypted: "+ str(patch_encrypted))
         if proceed:
-            print('sending patch')
+            # print('sending patch')
+            Console.customPrint(self.logFile, 'Sending Patch')
             self.patchQueue.put({'patch': patch_encrypted})
 
     def confirm_patch(self):
@@ -165,12 +195,12 @@ class strataSystem:
         if result == "y":
             username = input("Please enter your username: ")
             password = input("Please enter your password: ")
+
             return self.authenticate(username, password)
 
     def authenticate(self, username, password):
         if bcrypt.hashpw(password.encode('utf-8'), os.environ['pass'].encode('utf-8')) == os.environ['pass'].encode(
                 'utf-8') and username == os.environ['user']:
-            print("works")
             return True
         else:
             print("It does not match")
@@ -201,7 +231,6 @@ class strataSystem:
         print(encrypted_message)
         return encrypted_message
 
-
 if __name__ == '__main__':
     rawWeightDataQueue = Queue()
     processWeightDataQueue = Queue()
@@ -222,6 +251,3 @@ if __name__ == '__main__':
     device_process.join()
     node_process.join()
     system_process.join()
-
-#check to see if the patch succeeds, if not rollback
-#check integrity of patch

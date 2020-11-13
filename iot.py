@@ -15,7 +15,7 @@ class Console:
     @staticmethod
     def customPrint(targetFile, message):
         # If any of you want to test this, remember that the tail command won't work on windows.
-        im_using_windows = True
+        im_using_windows = False
 
         if (im_using_windows):
             print(message)
@@ -77,8 +77,8 @@ class WeightSensor:
 
     def sendProcessData(self, data):
         # x=5
-        print_message = 'Send Process Data (' + self.version + '):' + str(data)
-        Console.customPrint(self.logFile, print_message)
+        # print_message = 'Send Process Data (' + self.version + '):' + str(data)
+        # Console.customPrint(self.logFile, print_message)
         # print('Send Process Data (' + self.version + '):' + str(data))
         self.processWeightDataQueue.put({'data': data})
         #sends data to node -- using Queue
@@ -112,13 +112,20 @@ class WeightSensor:
             self.process(rawData)
 
     # pylint: disable=E0202
-    def process(self, data):
+    def process(self, data, targetFile = None):
         # print('Im the core process')
         newData = data / 1000
         # print('Process:' + str(newData) + " kg")
-        Console.customPrint(self.logFile, 'Process:' + str(newData) + " kg")
+        self.weight_sensor_print('Process:' + str(newData) + " kg", targetFile)
+        # Console.customPrint(self.logFile, 'Process:' + str(newData) + " kg")
         self.sendProcessData(newData)
         # print(data)
+    
+    def weight_sensor_print(self, message, targetFile = None):
+        if not targetFile:
+            targetFile = self.logFile
+
+        Console.customPrint(targetFile, message)
 
     def update(self, function):
         context = {}
@@ -146,19 +153,19 @@ class PLC:
             if self.lowMode:
                 if not self.rawWeightDataQueue.empty():
                     data = self.rawWeightDataQueue.get()['data']
-                    Console.customPrint(self.logFile, 'PLC PROCESS' + str(data))
+                    Console.customPrint(self.logFile, 'PLC PROCESS RAW DATA:' + str(data))
                     # print('PLC PROCESS: ', data)
                     self.processData(data)
             self.send_over_communication_network()
 
     def processData(self, data):
-        self.weightSensor.process(data)
+        self.weightSensor.process(data, 'PLC.txt')
 
     def send_over_communication_network(self):
         if not self.processWeightDataQueue.empty():
             process_data = self.processWeightDataQueue.get()
             if 'data' in process_data:
-                Console.customPrint(self.logFile, 'PLC receives: ' + str(process_data['data']))
+                Console.customPrint(self.logFile, 'PLC SENDS DATA TO SYSTEM: ' + str(process_data['data']))
                 # print('PLC receives: ' + str(process_data['data']))
                 self.communicationNetwork.put({'data': process_data['data']})
 
@@ -247,7 +254,7 @@ if __name__ == '__main__':
     device_process.start()
     node_process = Process(target=plc.listen_data_queue, args=())
     node_process.start()
-    patching_system.send_patch('def process(self,data):\n\tprint("Process:"+str(data/454)+" lbs")\n\tself.sendProcessData(data/454)')
+    patching_system.send_patch('def process(self, data, targetFile = None):\n\tself.weight_sensor_print("Process:"+str(data/454)+" lbs", targetFile)\n\tself.sendProcessData(data/454)')
     device_process.join()
     node_process.join()
     system_process.join()

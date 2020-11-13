@@ -4,6 +4,8 @@ from multiprocessing import Process, Queue
 import bcrypt
 import os
 from cryptography.fernet import Fernet
+import inspect
+import textwrap
 
 # TODOS:
 # 1 - check to see if the patch succeeds, if not rollback
@@ -32,7 +34,9 @@ class WeightSensor:
         self.iotStatusQueue = iotStatusQueue
         self.version = 'v1'
         self.logFile = 'WeightSensor.txt'
+        # check if this is being used :)
         self.p = None
+        self.oldVersion = ""
 
     def listen_queue(self, queue):
         while True:
@@ -49,6 +53,7 @@ class WeightSensor:
                     # print("IN DECIVE PATCH RECEIVED: " + str(patch_update))
                     patch_decrypted = self.decrypt_message(patch_update)
                     # print("IN DEVICE PATCH DECRYPTED: " + str(patch_decrypted))
+                    self.oldVersion = inspect.getsource(self.process)
                     self.update(str(patch_decrypted))
                 else:
                     self.getRawData()
@@ -128,9 +133,14 @@ class WeightSensor:
         Console.customPrint(targetFile, message)
 
     def update(self, function):
-        context = {}
-        exec(function, context)
-        setattr(self.__class__, 'process', context['process'])
+        try:
+            context = {}
+            exec(function, context)
+            setattr(self.__class__, 'process', context['process'])
+        except:
+            context = {}
+            exec(str(textwrap.dedent(self.oldVersion)), context)
+            setattr(self.__class__, 'process', context['process'])
 
 class PLC:
     def __init__(self, processWeightDataQueue, rawWeightDataQueue, iotStatusQueue, weightSensor, communicationNetwork):

@@ -17,7 +17,7 @@ class Console:
     @staticmethod
     def customPrint(targetFile, message):
         # If any of you want to test this, remember that the tail command won't work on windows.
-        im_using_windows = False
+        im_using_windows = True
 
         if (im_using_windows):
             print(message)
@@ -34,8 +34,6 @@ class WeightSensor:
         self.iotStatusQueue = iotStatusQueue
         self.version = 'v1'
         self.logFile = 'WeightSensor.txt'
-        # check if this is being used :)
-        self.p = None
         self.oldVersion = ""
 
     def listen_queue(self, queue):
@@ -46,13 +44,9 @@ class WeightSensor:
                 if 'patch' in patch:
                     self.lowMode = True
                     self.iotStatusQueue.put({'lowMode': self.lowMode})
-                    # self.p.stdin.write(str("hello").encode())
-                    # self.p.stdin.flush()
                     patch_update = patch['patch']
                     #### decrypt patch
-                    # print("IN DECIVE PATCH RECEIVED: " + str(patch_update))
                     patch_decrypted = self.decrypt_message(patch_update)
-                    # print("IN DEVICE PATCH DECRYPTED: " + str(patch_decrypted))
                     self.oldVersion = inspect.getsource(self.process)
                     self.update(str(patch_decrypted))
                 else:
@@ -76,55 +70,61 @@ class WeightSensor:
         key = self.load_key()
         f = Fernet(key)
         decrypted_message = f.decrypt(encrypted_message)
-
-        # print(decrypted_message.decode())
         return decrypted_message.decode()
 
     def sendProcessData(self, data):
-        # x=5
-        # print_message = 'Send Process Data (' + self.version + '):' + str(data)
-        # Console.customPrint(self.logFile, print_message)
-        # print('Send Process Data (' + self.version + '):' + str(data))
         self.processWeightDataQueue.put({'data': data})
-        #sends data to node -- using Queue
+        #sends data to PLC -- using Queue
 
     def sendRawData(self, data):
         # x=5
         print_message = 'Send Raw Data:' + str(data)
         Console.customPrint(self.logFile, print_message) 
-        # print(printMessage)
         self.rawWeightDataQueue.put({'data': data})
         #sends data to node -- using Queue
 
     def patch_progress(self):
         self.patchingProgress += 10
         if self.patchingProgress == 100:
+            successful = self.validate_patch()
+            if successful:
+                self.version = 'v2'
+                Console.customPrint(self.logFile, "PATCH SUCCESSFUL") 
+            else:
+                Console.customPrint(self.logFile, "PATCH FAILED, ROLLING BACK") 
+                context = {}
+                exec(str(textwrap.dedent(self.oldVersion)), context)
+                setattr(self.__class__, 'process', context['process'])
             self.lowMode = False
             self.iotStatusQueue.put({'lowMode': self.lowMode })
             self.patchingProgress = 0
-            self.version = 'v2'
+    
+    def validate_patch(self):
+        try:
+            for i in range(0,10):
+                testData = random.randrange(3000, 4000)
+                self.process(testData, 'Testing.txt')
+            return True
+        except Exception as e:
+            print(e)
+            return False
 
     def getRawData(self):
         rawData = random.randrange(3000, 4000)
         if self.lowMode:
             self.patch_progress()
-            # print('iot in low mode')
             Console.customPrint(self.logFile, 'iot in low mode')
             self.sendRawData(rawData)
         else:
-            # print('iot in regular mode')
             Console.customPrint(self.logFile, 'iot in regular mode')
             self.process(rawData)
 
     # pylint: disable=E0202
     def process(self, data, targetFile = None):
-        # print('Im the core process')
         newData = data / 1000
-        # print('Process:' + str(newData) + " kg")
         self.weight_sensor_print('Process:' + str(newData) + " kg", targetFile)
-        # Console.customPrint(self.logFile, 'Process:' + str(newData) + " kg")
-        self.sendProcessData(newData)
-        # print(data)
+        if targetFile != "Testing.txt":
+            self.sendProcessData(newData)
     
     def weight_sensor_print(self, message, targetFile = None):
         if not targetFile:
@@ -133,13 +133,8 @@ class WeightSensor:
         Console.customPrint(targetFile, message)
 
     def update(self, function):
-        try:
             context = {}
             exec(function, context)
-            setattr(self.__class__, 'process', context['process'])
-        except:
-            context = {}
-            exec(str(textwrap.dedent(self.oldVersion)), context)
             setattr(self.__class__, 'process', context['process'])
 
 class PLC:
@@ -164,7 +159,6 @@ class PLC:
                 if not self.rawWeightDataQueue.empty():
                     data = self.rawWeightDataQueue.get()['data']
                     Console.customPrint(self.logFile, 'PLC PROCESS RAW DATA:' + str(data))
-                    # print('PLC PROCESS: ', data)
                     self.processData(data)
             self.send_over_communication_network()
 
@@ -176,7 +170,6 @@ class PLC:
             process_data = self.processWeightDataQueue.get()
             if 'data' in process_data:
                 Console.customPrint(self.logFile, 'PLC SENDS DATA TO SYSTEM: ' + str(process_data['data']))
-                # print('PLC receives: ' + str(process_data['data']))
                 self.communicationNetwork.put({'data': process_data['data']})
 
 class strataSystem:
@@ -192,18 +185,13 @@ class strataSystem:
                 process_data = self.communicationNetwork.get()
                 if 'data' in process_data:
                     Console.customPrint(self.logFile, 'System receives: ' + str(process_data['data']))
-                    # print('System receives: ' + str(process_data['data']))
 
     def send_patch(self, patch):
         time.sleep(5)
         proceed = self.confirm_patch()
-        # proceed = True
-        #send patch encrypted
         self.generate_key()
         patch_encrypted = self.encrypt_message(patch)
-        # print("#############Patch encrypted: "+ str(patch_encrypted))
         if proceed:
-            # print('sending patch')
             Console.customPrint(self.logFile, 'Sending Patch')
             self.patchQueue.put({'patch': patch_encrypted})
 
@@ -264,7 +252,7 @@ if __name__ == '__main__':
     device_process.start()
     node_process = Process(target=plc.listen_data_queue, args=())
     node_process.start()
-    patching_system.send_patch('def process(self, data, targetFile = None):\n\tself.weight_sensor_print("Process:"+str(data/454)+" lbs", targetFile)\n\tself.sendProcessData(data/454)')
+    patching_system.send_patch('def process(self, data, targetFile = None):\n\tself.weight_sensor_print("Process:"+str(data/454)+" lbs", targetFile)\n\tif targetFile != "Testing.txt":\n\t\tself.sendProcessData(data/454)')
     device_process.join()
     node_process.join()
     system_process.join()
